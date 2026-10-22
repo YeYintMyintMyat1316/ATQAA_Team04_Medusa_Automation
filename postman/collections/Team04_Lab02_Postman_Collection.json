@@ -1,0 +1,560 @@
+{
+  "info": {
+    "_postman_id": "a7e1c0de-0000-4000-8000-000000000001",
+    "name": "Team04_Medusa_Cart_Checkout_Suite",
+    "description": "ATQAA Lab 02 - Team04. 5-step dynamic API chain against Medusa.js v2 staging: Admin auth -> Catalog -> Create cart -> Add line item -> Validate cart. Every request runs 3 assertion tiers: [T1] status + latency SLA (collection-level), [T2] data integrity / business logic, [T3] Ajv JSON-schema contract. Zero hardcoding: all hosts, keys and IDs come from Medusa_Staging_Env.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Admin Authentication & Token Extraction",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "id": "a7e1c0de-0000-4000-8000-000000000011",
+            "type": "text/javascript",
+            "exec": [
+              "// ===== TIER 2: Data integrity - token =====",
+              "const jsonData = pm.response.json();",
+              "const token = jsonData.token || jsonData.access_token;",
+              "pm.test(\"[T2] JWT token is a non-empty string\", function () {",
+              "    pm.expect(token).to.be.a(\"string\").and.not.empty;",
+              "});",
+              "pm.test(\"[T2] Token has 3 JWT segments (header.payload.signature)\", function () {",
+              "    pm.expect(token.split(\".\")).to.have.lengthOf(3);",
+              "});",
+              "",
+              "// ===== TIER 3: JSON Schema contract (Ajv) =====",
+              "const Ajv = require(\"ajv\");",
+              "const ajv = new Ajv({ allErrors: true });",
+              "const authSchema = {",
+              "    type: \"object\",",
+              "    required: [\"token\"],",
+              "    properties: { token: { type: \"string\", minLength: 20 } }",
+              "};",
+              "pm.test(\"[T3] Auth response matches JSON schema\", function () {",
+              "    const valid = ajv.validate(authSchema, jsonData);",
+              "    pm.expect(valid, JSON.stringify(ajv.errors)).to.be.true;",
+              "});",
+              "",
+              "// ===== CHAINING: save token =====",
+              "pm.environment.set(\"apiToken\", token);",
+              "",
+              "// ===== CHAINING: resolve publishable API key dynamically from Admin API =====",
+              "pm.sendRequest({",
+              "    url: pm.environment.get(\"adminBaseUrl\") + \"/admin/api-keys?type=publishable&limit=50\",",
+              "    method: \"GET\",",
+              "    header: { \"Authorization\": \"Bearer \" + token }",
+              "}, function (err, res) {",
+              "    pm.test(\"[Chain] Publishable API key resolved via Admin API\", function () {",
+              "        pm.expect(err).to.be.null;",
+              "        pm.expect(res.code).to.equal(200);",
+              "        const active = res.json().api_keys.find(k => !k.revoked_at);",
+              "        pm.expect(active, \"no active publishable key\").to.exist;",
+              "        pm.environment.set(\"publishableKey\", active.token);",
+              "    });",
+              "});",
+              ""
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"{{adminEmail}}\",\n    \"password\": \"{{adminPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{adminBaseUrl}}/auth/user/emailpass",
+          "host": [
+            "{{adminBaseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "user",
+            "emailpass"
+          ]
+        },
+        "description": "Authenticates admin user, stores JWT in {{apiToken}}, then resolves the publishable API key into {{publishableKey}}."
+      }
+    },
+    {
+      "name": "02 - Retrieve Catalog & Extract Variant ID",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "id": "a7e1c0de-0000-4000-8000-000000000021",
+            "type": "text/javascript",
+            "exec": [
+              "const jsonData = pm.response.json();",
+              "",
+              "// ===== TIER 2: Data integrity - catalog =====",
+              "pm.test(\"[T2] Catalog returns at least 1 product\", function () {",
+              "    pm.expect(jsonData.products).to.be.an(\"array\").that.is.not.empty;",
+              "    pm.expect(jsonData.count).to.be.a(\"number\").and.above(0);",
+              "});",
+              "pm.test(\"[T2] First product has at least 1 variant with a variant_ id\", function () {",
+              "    const v = jsonData.products[0].variants;",
+              "    pm.expect(v).to.be.an(\"array\").that.is.not.empty;",
+              "    pm.expect(v[0].id).to.match(/^variant_/);",
+              "});",
+              "",
+              "// ===== TIER 3: JSON Schema contract (Ajv) =====",
+              "const Ajv = require(\"ajv\");",
+              "const ajv = new Ajv({ allErrors: true });",
+              "const productListSchema = {",
+              "    type: \"object\",",
+              "    required: [\"products\", \"count\", \"offset\", \"limit\"],",
+              "    properties: {",
+              "        count: { type: \"integer\", minimum: 0 },",
+              "        offset: { type: \"integer\" },",
+              "        limit: { type: \"integer\" },",
+              "        products: {",
+              "            type: \"array\",",
+              "            items: {",
+              "                type: \"object\",",
+              "                required: [\"id\", \"title\", \"variants\"],",
+              "                properties: {",
+              "                    id: { type: \"string\", pattern: \"^prod_\" },",
+              "                    title: { type: \"string\" },",
+              "                    variants: {",
+              "                        type: \"array\",",
+              "                        items: {",
+              "                            type: \"object\",",
+              "                            required: [\"id\", \"title\"],",
+              "                            properties: { id: { type: \"string\", pattern: \"^variant_\" } }",
+              "                        }",
+              "                    }",
+              "                }",
+              "            }",
+              "        }",
+              "    }",
+              "};",
+              "pm.test(\"[T3] Product list matches JSON schema\", function () {",
+              "    const valid = ajv.validate(productListSchema, jsonData);",
+              "    pm.expect(valid, JSON.stringify(ajv.errors)).to.be.true;",
+              "});",
+              "",
+              "// ===== CHAINING: save first variant =====",
+              "pm.environment.set(\"variantId\", jsonData.products[0].variants[0].id);",
+              ""
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "x-publishable-api-key",
+            "value": "{{publishableKey}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "products"
+          ]
+        },
+        "description": "Lists storefront products and stores the first variant id in {{variantId}}."
+      }
+    },
+    {
+      "name": "03 - Initialize Cart with Shipping Details",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "id": "a7e1c0de-0000-4000-8000-000000000031",
+            "type": "text/javascript",
+            "exec": [
+              "// Resolve region_id dynamically (no hardcoded reg_... IDs).",
+              "// Picks the region that contains {{countryCode}} (default \"vn\").",
+              "const cc = (pm.environment.get(\"countryCode\") || \"vn\").toLowerCase();",
+              "pm.sendRequest({",
+              "    url: pm.environment.get(\"baseUrl\") + \"/regions\",",
+              "    method: \"GET\",",
+              "    header: { \"x-publishable-api-key\": pm.environment.get(\"publishableKey\") }",
+              "}, function (err, res) {",
+              "    if (err || res.code !== 200) { console.error(\"Region lookup failed\", err || res.code); return; }",
+              "    const regions = res.json().regions || [];",
+              "    const match = regions.find(r => (r.countries || []).some(c => c.iso_2 === cc)) || regions[0];",
+              "    if (match) pm.environment.set(\"regionId\", match.id);",
+              "});",
+              ""
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "id": "a7e1c0de-0000-4000-8000-000000000032",
+            "type": "text/javascript",
+            "exec": [
+              "const jsonData = pm.response.json();",
+              "const cart = jsonData.cart;",
+              "",
+              "// ===== TIER 2: Data integrity - new cart =====",
+              "pm.test(\"[T2] Cart id is generated with cart_ prefix\", function () {",
+              "    pm.expect(cart.id).to.be.a(\"string\").and.match(/^cart_/);",
+              "});",
+              "pm.test(\"[T2] Cart is bound to the requested region\", function () {",
+              "    pm.expect(cart.region_id).to.equal(pm.environment.get(\"regionId\"));",
+              "});",
+              "pm.test(\"[T2] Shipping address persisted (country = countryCode)\", function () {",
+              "    pm.expect(cart.shipping_address.country_code).to.equal((pm.environment.get(\"countryCode\") || \"vn\").toLowerCase());",
+              "    pm.expect(cart.shipping_address.first_name).to.equal(\"QA\");",
+              "});",
+              "pm.test(\"[T2] New cart is empty with total = 0\", function () {",
+              "    pm.expect(cart.items).to.be.an(\"array\").that.is.empty;",
+              "    pm.expect(cart.total).to.equal(0);",
+              "});",
+              "",
+              "// ===== TIER 3: JSON Schema contract (Ajv) =====",
+              "const Ajv = require(\"ajv\");",
+              "const ajv = new Ajv({ allErrors: true });",
+              "const cartSchema = {",
+              "    type: \"object\",",
+              "    required: [\"cart\"],",
+              "    properties: {",
+              "        cart: {",
+              "            type: \"object\",",
+              "            required: [\"id\", \"region_id\", \"currency_code\", \"items\", \"total\", \"subtotal\", \"shipping_address\"],",
+              "            properties: {",
+              "                id: { type: \"string\", pattern: \"^cart_\" },",
+              "                region_id: { type: \"string\", pattern: \"^reg_\" },",
+              "                currency_code: { type: \"string\", minLength: 3, maxLength: 3 },",
+              "                items: { type: \"array\" },",
+              "                total: { type: \"number\", minimum: 0 },",
+              "                subtotal: { type: \"number\", minimum: 0 },",
+              "                shipping_address: {",
+              "                    type: \"object\",",
+              "                    required: [\"country_code\"],",
+              "                    properties: { country_code: { type: \"string\" } }",
+              "                }",
+              "            }",
+              "        }",
+              "    }",
+              "};",
+              "pm.test(\"[T3] Cart response matches JSON schema\", function () {",
+              "    const valid = ajv.validate(cartSchema, jsonData);",
+              "    pm.expect(valid, JSON.stringify(ajv.errors)).to.be.true;",
+              "});",
+              "",
+              "// ===== CHAINING: save cart id =====",
+              "pm.environment.set(\"cartId\", cart.id);",
+              ""
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "x-publishable-api-key",
+            "value": "{{publishableKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"region_id\": \"{{regionId}}\",\n    \"shipping_address\": {\n        \"first_name\": \"QA\",\n        \"last_name\": \"Automation\",\n        \"country_code\": \"{{countryCode}}\"\n    }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/carts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "carts"
+          ]
+        },
+        "description": "Pre-request resolves {{regionId}} from /store/regions. Creates a cart and stores {{cartId}}."
+      }
+    },
+    {
+      "name": "04 - Add Line Item to Cart",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "id": "a7e1c0de-0000-4000-8000-000000000041",
+            "type": "text/javascript",
+            "exec": [
+              "const jsonData = pm.response.json();",
+              "const cart = jsonData.cart;",
+              "const item = cart.items.find(i => i.variant_id === pm.environment.get(\"variantId\"));",
+              "",
+              "// ===== TIER 2: Data integrity - line item =====",
+              "pm.test(\"[T2] Response refers to the same cartId\", function () {",
+              "    pm.expect(cart.id).to.equal(pm.environment.get(\"cartId\"));",
+              "});",
+              "pm.test(\"[T2] Line item for variantId exists with quantity 1\", function () {",
+              "    pm.expect(item, \"line item for variant not found\").to.exist;",
+              "    pm.expect(item.quantity).to.equal(1);",
+              "});",
+              "pm.test(\"[T2] Unit price is a positive number\", function () {",
+              "    pm.expect(item.unit_price).to.be.a(\"number\").and.above(0);",
+              "});",
+              "",
+              "// ===== TIER 3: JSON Schema contract (Ajv) =====",
+              "const Ajv = require(\"ajv\");",
+              "const ajv = new Ajv({ allErrors: true });",
+              "const lineItemCartSchema = {",
+              "    type: \"object\",",
+              "    required: [\"cart\"],",
+              "    properties: {",
+              "        cart: {",
+              "            type: \"object\",",
+              "            required: [\"id\", \"items\"],",
+              "            properties: {",
+              "                items: {",
+              "                    type: \"array\",",
+              "                    minItems: 1,",
+              "                    items: {",
+              "                        type: \"object\",",
+              "                        required: [\"id\", \"variant_id\", \"quantity\", \"unit_price\", \"title\"],",
+              "                        properties: {",
+              "                            id: { type: \"string\", pattern: \"^cali_\" },",
+              "                            variant_id: { type: \"string\", pattern: \"^variant_\" },",
+              "                            quantity: { type: \"integer\", minimum: 1 },",
+              "                            unit_price: { type: \"number\", minimum: 0 },",
+              "                            title: { type: \"string\" }",
+              "                        }",
+              "                    }",
+              "                }",
+              "            }",
+              "        }",
+              "    }",
+              "};",
+              "pm.test(\"[T3] Line-item cart matches JSON schema\", function () {",
+              "    const valid = ajv.validate(lineItemCartSchema, jsonData);",
+              "    pm.expect(valid, JSON.stringify(ajv.errors)).to.be.true;",
+              "});",
+              "",
+              "// ===== CHAINING: save line item + expected price for Request 5 =====",
+              "pm.environment.set(\"lineItemId\", item.id);",
+              "pm.environment.set(\"expectedUnitPrice\", item.unit_price);",
+              ""
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "x-publishable-api-key",
+            "value": "{{publishableKey}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"variant_id\": \"{{variantId}}\",\n    \"quantity\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/carts/{{cartId}}/line-items",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "carts",
+            "{{cartId}}",
+            "line-items"
+          ]
+        },
+        "description": "Adds {{variantId}} x1 to {{cartId}}; stores {{lineItemId}} and {{expectedUnitPrice}}. NOTE: Medusa v2 rejects this call with 400 if x-publishable-api-key is missing."
+      }
+    },
+    {
+      "name": "05 - Fetch Updated Cart & Validate Calculations",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "id": "a7e1c0de-0000-4000-8000-000000000051",
+            "type": "text/javascript",
+            "exec": [
+              "const jsonData = pm.response.json();",
+              "const cart = jsonData.cart;",
+              "",
+              "// ===== TIER 2: Data integrity & business logic =====",
+              "pm.test(\"[T2] Cart id matches chained cartId\", function () {",
+              "    pm.expect(cart.id).to.equal(pm.environment.get(\"cartId\"));",
+              "});",
+              "pm.test(\"[T2] items array contains exactly 1 line item\", function () {",
+              "    pm.expect(cart.items).to.be.an(\"array\").with.lengthOf(1);",
+              "});",
+              "pm.test(\"[T2] Line item matches chained lineItemId / variantId\", function () {",
+              "    pm.expect(cart.items[0].id).to.equal(pm.environment.get(\"lineItemId\"));",
+              "    pm.expect(cart.items[0].variant_id).to.equal(pm.environment.get(\"variantId\"));",
+              "});",
+              "pm.test(\"[T2] cart.total is a number > 0\", function () {",
+              "    pm.expect(cart.total).to.be.a(\"number\").and.above(0);",
+              "});",
+              "pm.test(\"[T2] item_total = sum(unit_price x quantity)\", function () {",
+              "    const computed = cart.items.reduce((s, i) => s + i.unit_price * i.quantity, 0);",
+              "    pm.expect(cart.item_total).to.equal(computed);",
+              "});",
+              "pm.test(\"[T2] total = item_total + shipping_total - discount_total\", function () {",
+              "    pm.expect(cart.total).to.equal(cart.item_total + cart.shipping_total - cart.discount_total);",
+              "});",
+              "pm.test(\"[T2] Unit price unchanged since add-to-cart\", function () {",
+              "    pm.expect(cart.items[0].unit_price).to.equal(Number(pm.environment.get(\"expectedUnitPrice\")));",
+              "});",
+              "pm.test(\"[T2] Cart is still open (completed_at is null)\", function () {",
+              "    pm.expect(cart.completed_at).to.be.null;",
+              "});",
+              "",
+              "// ===== TIER 3: JSON Schema contract (Ajv) =====",
+              "const Ajv = require(\"ajv\");",
+              "const ajv = new Ajv({ allErrors: true });",
+              "const fullCartSchema = {",
+              "    type: \"object\",",
+              "    required: [\"cart\"],",
+              "    properties: {",
+              "        cart: {",
+              "            type: \"object\",",
+              "            required: [\"id\", \"currency_code\", \"region_id\", \"items\", \"total\", \"subtotal\",",
+              "                       \"item_total\", \"tax_total\", \"shipping_total\", \"discount_total\",",
+              "                       \"shipping_address\", \"created_at\", \"updated_at\"],",
+              "            properties: {",
+              "                id: { type: \"string\", pattern: \"^cart_\" },",
+              "                currency_code: { type: \"string\", minLength: 3, maxLength: 3 },",
+              "                region_id: { type: \"string\", pattern: \"^reg_\" },",
+              "                email: { type: [\"string\", \"null\"] },",
+              "                completed_at: { type: [\"string\", \"null\"] },",
+              "                total: { type: \"number\", minimum: 0 },",
+              "                subtotal: { type: \"number\", minimum: 0 },",
+              "                item_total: { type: \"number\", minimum: 0 },",
+              "                tax_total: { type: \"number\", minimum: 0 },",
+              "                shipping_total: { type: \"number\", minimum: 0 },",
+              "                discount_total: { type: \"number\", minimum: 0 },",
+              "                created_at: { type: \"string\" },",
+              "                updated_at: { type: \"string\" },",
+              "                shipping_address: {",
+              "                    type: \"object\",",
+              "                    required: [\"country_code\"],",
+              "                    properties: { country_code: { type: \"string\", minLength: 2, maxLength: 2 } }",
+              "                },",
+              "                items: {",
+              "                    type: \"array\",",
+              "                    minItems: 1,",
+              "                    items: {",
+              "                        type: \"object\",",
+              "                        required: [\"id\", \"variant_id\", \"product_id\", \"quantity\", \"unit_price\", \"title\"],",
+              "                        properties: {",
+              "                            id: { type: \"string\", pattern: \"^cali_\" },",
+              "                            variant_id: { type: \"string\", pattern: \"^variant_\" },",
+              "                            product_id: { type: \"string\", pattern: \"^prod_\" },",
+              "                            quantity: { type: \"integer\", minimum: 1 },",
+              "                            unit_price: { type: \"number\", minimum: 0 },",
+              "                            title: { type: \"string\" }",
+              "                        }",
+              "                    }",
+              "                }",
+              "            }",
+              "        }",
+              "    }",
+              "};",
+              "pm.test(\"[T3] Full cart matches JSON schema contract\", function () {",
+              "    const valid = ajv.validate(fullCartSchema, jsonData);",
+              "    pm.expect(valid, JSON.stringify(ajv.errors)).to.be.true;",
+              "});",
+              ""
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "x-publishable-api-key",
+            "value": "{{publishableKey}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/carts/{{cartId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "carts",
+            "{{cartId}}"
+          ]
+        },
+        "description": "Re-reads the cart and verifies totals, chained IDs and the full JSON-schema contract."
+      }
+    }
+  ],
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "id": "a7e1c0de-0000-4000-8000-000000000002",
+        "type": "text/javascript",
+        "exec": [
+          "// ===== TIER 1 (shared): Status & Latency SLA - runs after EVERY request =====",
+          "// Reads (GET) must answer < slaMs (1200ms, per Lab 02 Stage 3).",
+          "// Writes (POST) run Medusa v2 workflows (pricing, tax, inventory) and were measured",
+          "// at ~1.6s on Render free tier, so they use the separate slaWriteMs budget.",
+          "const isWrite = pm.request.method !== \"GET\";",
+          "const sla = Number(isWrite ? (pm.environment.get(\"slaWriteMs\") || 5000) : (pm.environment.get(\"slaMs\") || 1200));",
+          "pm.test(\"[T1] HTTP status is 200/201\", function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+          "});",
+          "pm.test(\"[T1] Response time < \" + sla + \"ms (Render staging SLA)\", function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(sla);",
+          "});",
+          "pm.test(\"[T1] Content-Type is JSON\", function () {",
+          "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\");",
+          "});",
+          ""
+        ]
+      }
+    }
+  ]
+}
