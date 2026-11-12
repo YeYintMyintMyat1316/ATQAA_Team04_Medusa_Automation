@@ -1,0 +1,11 @@
+first_name,last_name,email,address_1,city,postal_code,country_code,item_qty,promo_code
+An,Nguyen,an.nguyen@example.test,12 Le Loi,Ho Chi Minh,700000,vn,1,
+Binh,Tran,binh.tran@example.test,45 Tran Hung Dao,Ha Noi,100000,vn,2,
+Chi,Le,chi.le@example.test,7 Bach Dang,Da Nang,550000,vn,1,
+Dung,Pham,dung.pham@example.test,88 Hai Ba Trung,Hue,530000,vn,3,
+Em,Hoang,em.hoang@example.test,3 Nguyen Trai,Can Tho,900000,vn,1,
+Giang,Vu,giang.vu@example.test,19 Ly Thuong Kiet,Hai Phong,180000,vn,2,
+Huong,Dang,huong.dang@example.test,25 Pasteur,Nha Trang,650000,vn,1,
+Khanh,Bui,khanh.bui@example.test,9 Vo Van Tan,Vung Tau,790000,vn,1,SAVE10
+Lan,Do,lan.do@example.test,AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA,Ho Chi Minh,700000,vn,1,
+Minh,Ngo,minh.ngo@example.test,1 Dong Khoi,Ho Chi Minh,700000,vn,5,EXPIRED2025
