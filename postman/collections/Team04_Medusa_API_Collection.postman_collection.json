@@ -385,6 +385,18 @@
                   "});"
                 ]
               }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// New iteration: forget ids from the previous checkout",
+                  "pm.environment.unset(\"lineItemId\");",
+                  "pm.environment.unset(\"paymentCollectionId\");",
+                  "pm.environment.unset(\"orderId\");"
+                ]
+              }
             }
           ],
           "request": {
@@ -426,23 +438,55 @@
           "name": "Add item to cart",
           "event": [
             {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Safety net: if variantId is missing, pick a purchasable variant now",
+                  "// (priced in the region + no special shipping profile, so Complete Order can succeed)",
+                  "if (!pm.environment.get(\"variantId\")) {",
+                  "    pm.sendRequest({",
+                  "        url: pm.environment.get(\"baseUrl\") + \"/products?region_id=\" + pm.environment.get(\"regionId\") + \"&fields=*variants.calculated_price,*shipping_profile\",",
+                  "        method: \"GET\",",
+                  "        header: { \"x-publishable-api-key\": pm.environment.get(\"publishableKey\") }",
+                  "    }, function (err, res) {",
+                  "        if (err || res.code !== 200) { console.error(\"Product lookup failed\", err || res.code); return; }",
+                  "        var product = res.json().products.find(function (p) {",
+                  "            var v = p.variants && p.variants[0];",
+                  "            return v && v.calculated_price && !p.shipping_profile;",
+                  "        });",
+                  "        if (product) {",
+                  "            pm.environment.set(\"variantId\", product.variants[0].id);",
+                  "            console.log(\"variantId was empty - picked \" + product.variants[0].id + \" (\" + product.title + \")\");",
+                  "        }",
+                  "    });",
+                  "}"
+                ]
+              }
+            },
+            {
               "listen": "test",
               "script": {
                 "type": "text/javascript",
                 "exec": [
                   "var jsonData = pm.response.json();",
-                  "var item = jsonData.cart.items[0];",
+                  "if (pm.response.code !== 200) {",
+                  "    console.error(\"Add item failed:\", pm.response.text());",
+                  "}",
+                  "var item = jsonData.cart ? jsonData.cart.items[0] : undefined;",
                   "",
                   "pm.test(\"[Tier 2] Item is added with the right quantity\", function () {",
+                  "    pm.expect(item, \"no item in cart\").to.exist;",
                   "    pm.expect(item.variant_id).to.equal(pm.environment.get(\"variantId\"));",
                   "    pm.expect(item.quantity).to.equal(Number(pm.variables.get(\"item_qty\")));",
                   "});",
                   "",
                   "pm.test(\"[Tier 2] Item total = price x quantity\", function () {",
+                  "    pm.expect(item, \"no item in cart\").to.exist;",
                   "    pm.expect(jsonData.cart.item_total).to.equal(item.unit_price * item.quantity);",
                   "});",
                   "",
-                  "pm.environment.set(\"lineItemId\", item.id);",
+                  "if (item) { pm.environment.set(\"lineItemId\", item.id); }",
                   "",
                   "// Tier 3: JSON schema contract",
                   "var cartSchema = {",
@@ -854,18 +898,22 @@
                 "type": "text/javascript",
                 "exec": [
                   "var jsonData = pm.response.json();",
+                  "var order = jsonData.order || {};",
+                  "if (jsonData.type !== \"order\") {",
+                  "    console.error(\"Complete Order refused:\", jsonData.message || pm.response.text());",
+                  "}",
                   "",
                   "pm.test(\"[Tier 2] Order is created\", function () {",
                   "    pm.expect(jsonData.type).to.equal(\"order\");",
-                  "    pm.expect(jsonData.order.id).to.include(\"order_\");",
+                  "    pm.expect(order.id, jsonData.message).to.be.a(\"string\").and.include(\"order_\");",
                   "});",
                   "",
                   "pm.test(\"[Tier 2] Order total is greater than 0\", function () {",
-                  "    pm.expect(jsonData.order.total).to.be.above(0);",
+                  "    pm.expect(order.total, jsonData.message).to.be.above(0);",
                   "});",
                   "",
                   "pm.test(\"[Tier 2] Order email matches the customer\", function () {",
-                  "    pm.expect(jsonData.order.email).to.equal(pm.variables.get(\"email\"));",
+                  "    pm.expect(order.email, jsonData.message).to.equal(pm.variables.get(\"email\"));",
                   "});",
                   "",
                   "// Tier 3: JSON schema contract",
@@ -908,7 +956,7 @@
                   "    pm.response.to.have.jsonSchema(orderSchema);",
                   "});",
                   "",
-                  "pm.environment.set(\"orderId\", jsonData.order.id);"
+                  "if (order.id) { pm.environment.set(\"orderId\", order.id); }"
                 ]
               }
             }
