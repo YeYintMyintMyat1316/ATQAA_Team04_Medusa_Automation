@@ -29,11 +29,17 @@ const options = {
     json: { export: path.join(root, "reports/Team04_API_Automation_Report.json") },
   },
 };
+// Optional SLA overrides (used by CI, where the free Render server answers slower from GitHub runners)
+const envVar = [];
+if (process.env.SLA_MS) envVar.push({ key: "slaMs", value: process.env.SLA_MS });
+if (process.env.SLA_WRITE_MS) envVar.push({ key: "slaWriteMs", value: process.env.SLA_WRITE_MS });
+if (envVar.length) options.envVar = envVar;
 if (ddt) options.iterationData = path.join(root, "postman/data/test_data_checkout.csv");
 
 line(`=== Team04 Medusa API run started | mode: ${ddt ? "DDT (test_data_checkout.csv)" : "single run"} ===`);
 line(`Collection : ${path.basename(options.collection)}`);
 line(`Environment: ${path.basename(options.environment)}`);
+line(`SLA        : GET < ${process.env.SLA_MS || "env slaMs (2000)"} ms, POST/DELETE < ${process.env.SLA_WRITE_MS || "env slaWriteMs (5000)"} ms`);
 
 let failures = 0;
 newman.run(options)
