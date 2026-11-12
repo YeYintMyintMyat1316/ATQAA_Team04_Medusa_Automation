@@ -26,13 +26,22 @@
                   "// products is an ARRAY, so use an index: products[i].variants[0]",
                   "// Pick the first product that has a price and no special shipping profile",
                   "// (products[0] \"Classic T-Shirt\" cannot be shipped on staging, so checkout would fail)",
+                  "// Pick a purchasable product: has a price in the region AND no special shipping profile",
+                  "// (products[0] \"Classic T-Shirt\" uses a shipping profile that no shipping option serves)",
                   "var product = jsonData.products.find(function (p) {",
-                  "    return p.variants[0].calculated_price && !p.shipping_profile;",
+                  "    var v = p.variants && p.variants[0];",
+                  "    return v && v.calculated_price && v.calculated_price.calculated_amount > 0 && !p.shipping_profile;",
                   "});",
+                  "// Fallback: any product without a special shipping profile",
+                  "if (!product) {",
+                  "    product = jsonData.products.find(function (p) { return p.variants && p.variants.length && !p.shipping_profile; });",
+                  "}",
                   "",
                   "if (product) {",
                   "    pm.environment.set(\"variantId\", product.variants[0].id);",
-                  "    pm.environment.set(\"unitPrice\", product.variants[0].calculated_price.calculated_amount);",
+                  "    if (product.variants[0].calculated_price) {",
+                  "        pm.environment.set(\"unitPrice\", product.variants[0].calculated_price.calculated_amount);",
+                  "    }",
                   "}",
                   "",
                   "pm.test(\"[Tier 2] variantId is saved\", function () {",
@@ -157,12 +166,22 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/products",
+              "raw": "{{baseUrl}}/products?region_id={{regionId}}&fields=*variants.calculated_price,*shipping_profile",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "products"
+              ],
+              "query": [
+                {
+                  "key": "region_id",
+                  "value": "{{regionId}}"
+                },
+                {
+                  "key": "fields",
+                  "value": "*variants.calculated_price,*shipping_profile"
+                }
               ]
             }
           },
