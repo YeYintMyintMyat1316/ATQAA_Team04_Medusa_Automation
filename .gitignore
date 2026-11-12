@@ -1,0 +1,5 @@
+.DS_Store
+node_modules/
+postman/_old_copies/
+reports/logs/*.log
+reports/*.json

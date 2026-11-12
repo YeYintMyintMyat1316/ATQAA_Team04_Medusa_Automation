@@ -34,18 +34,17 @@ reports/          Newman HTML reports (generated)
 .github/workflows/testing-pipeline.yml
 ```
 
-## Running the API suite locally
+## Running the API suite locally (Newman CLI)
 
 ```bash
-npm install -g newman newman-reporter-htmlextra
-# wake the Render free-tier server first (cold start ~30-50 s)
-curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" https://atqaa-medusa-store.onrender.com/health
-
-newman run postman/collections/Team04_Medusa_API_Collection.postman_collection.json \
-  -e postman/environments/Medusa_Staging_Env.postman_environment.json \
-  -d postman/data/test_data_checkout.csv \
-  -r cli,htmlextra --reporter-htmlextra-export reports/Team04_API_Automation_Report.html
+npm install                 # installs newman + newman-reporter-htmlextra
+npm run warmup              # wakes the Render free-tier server (cold start ~30-50 s)
+npm run test:api            # 1 run, default customer data
+npm run test:api:ddt        # 10 iterations with postman/data/test_data_checkout.csv
 ```
+
+The HTML Extra report is written to `reports/Team04_API_Automation_Report.html`.
+The same steps run in GitHub Actions (`.github/workflows/testing-pipeline.yml`) on every push and pull request to `main`.
 
 ## Workflow conventions
 

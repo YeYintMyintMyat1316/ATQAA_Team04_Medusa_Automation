@@ -1,0 +1,41 @@
+name: ATQAA Testing Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  api-tests:
+    name: API Regression (Postman / Newman)
+    runs-on: ubuntu-latest
+    env:
+      # The free Render staging server answers 2-6 s slower when called from GitHub-hosted runners
+      # (cold database, long network path). CI uses relaxed SLA limits so slow infrastructure does not
+      # block merges; local / graded runs keep the strict limits from Medusa_Staging_Env (2000 / 5000 ms).
+      SLA_MS: "8000"
+      SLA_WRITE_MS: "12000"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Newman + HTML Extra reporter
+        run: npm ci || npm install
+
+      - name: Wake up Render staging server
+        run: npm run warmup
+
+      - name: Run Postman collection (DDT, 10 iterations)
+        run: npm run test:api:ddt
+
+      - name: Upload Newman reports and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-reports
+          path: reports/
