@@ -1,0 +1,35 @@
+name: ATQAA Testing Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  api-tests:
+    name: API Regression (Postman / Newman)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Newman + HTML Extra reporter
+        run: npm install
+
+      - name: Wake up Render staging server
+        run: npm run warmup
+
+      - name: Run Postman collection (DDT, 10 iterations)
+        run: npm run test:api:ddt
+
+      - name: Upload Newman HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-htmlextra-report
+          path: reports/

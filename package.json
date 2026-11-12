@@ -1,0 +1,16 @@
+{
+  "name": "atqaa-team04-medusa-automation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ATQAA Team04 - Medusa.js staging test automation (Postman/Newman, Playwright, k6)",
+  "scripts": {
+    "warmup": "node scripts/warmup.js",
+    "test:api": "newman run postman/collections/Team04_Medusa_API_Collection.postman_collection.json -e postman/environments/Medusa_Staging_Env.postman_environment.json -r cli,htmlextra --reporter-htmlextra-export reports/Team04_API_Automation_Report.html --reporter-htmlextra-title \"Team04 Medusa API Automation Report\"",
+    "test:api:ddt": "newman run postman/collections/Team04_Medusa_API_Collection.postman_collection.json -e postman/environments/Medusa_Staging_Env.postman_environment.json -d postman/data/test_data_checkout.csv -r cli,htmlextra --reporter-htmlextra-export reports/Team04_API_Automation_Report.html --reporter-htmlextra-title \"Team04 Medusa API Automation Report (DDT)\"",
+    "test:api:ci": "npm run warmup && npm run test:api:ddt"
+  },
+  "devDependencies": {
+    "newman": "^6.2.1",
+    "newman-reporter-htmlextra": "^1.23.1"
+  }
+}
